@@ -1,0 +1,26 @@
+carla:
+  # CARLA Simulator Configuration
+  host: localhost
+  port: 2000
+  timeout: 10.0
+  weather: "ClearNoon"  # ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon, ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainySunset, HardRainSunset
+
+planner:
+  # Offline 2D Planner Configuration
+  algorithm: "astar"  # A* algorithm for pathfinding
+  map_resolution: 0.1  # Grid resolution in meters
+  smoothing: true
+  smoothing_method: "cubic_spline"
+
+paths:
+  # Shared data paths
+  shared_data_dir: "shared_data"
+  routes_plan_csv: "shared_data/routes_plan.csv"
+  dynamics_data_csv: "shared_data/dynamics_data.csv"
+  ckas_commands_m: "shared_data/ckas_commands.m"
+  output_dir: "outputs"
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "logs/ckas_carla.log"
+  console: true

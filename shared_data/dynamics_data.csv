@@ -1,0 +1,10 @@
+timestamp,vehicle_x,vehicle_y,vehicle_z,velocity_x,velocity_y,velocity_z,acceleration_x,acceleration_y,acceleration_z,yaw_angle,steering_angle,throttle,brake
+# CSV Format for dynamics_data.csv
+# timestamp: Simulation timestamp (s)
+# vehicle_x, vehicle_y, vehicle_z: Vehicle position (m)
+# velocity_x, velocity_y, velocity_z: Velocity components (m/s)
+# acceleration_x, acceleration_y, acceleration_z: Acceleration components (m/s²)
+# yaw_angle: Vehicle heading angle (radians)
+# steering_angle: Steering wheel angle (radians)
+# throttle: Throttle input (0.0-1.0)
+# brake: Brake input (0.0-1.0)

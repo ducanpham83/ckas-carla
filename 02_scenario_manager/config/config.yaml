@@ -1,0 +1,60 @@
+# Module 2 Configuration: Scenario Manager
+
+scenario_manager:
+  # Simulation Parameters
+  simulation:
+    time_step: 0.1  # seconds
+    max_simulation_time: 300.0  # seconds
+    fixed_delta_seconds: 0.1
+    
+  # Vehicle Control
+  vehicle_control:
+    control_type: "pid"  # pid or pure_pursuit
+    target_speed_method: "adaptive"  # fixed or adaptive
+    steering_smoothing: 0.3
+    
+  # Data Filtering
+  filters:
+    enabled: true
+    default_filter: "kalman"  # kalman, lowpass, moving_average, butterworth
+    
+  # Kalman Filter
+  kalman:
+    process_noise: 0.001
+    measurement_noise: 0.01
+    
+  # Lowpass Filter
+  lowpass:
+    cutoff_frequency: 5.0  # Hz
+    order: 2
+    
+  # Moving Average
+  moving_average:
+    window_size: 5
+    
+  # Butterworth Filter
+  butterworth:
+    cutoff_frequency: 5.0  # Hz
+    order: 4
+    
+  # Video Recording
+  video:
+    enabled: true
+    resolution: [1920, 1080]
+    fps: 30
+    format: "mp4"
+    codec: "h264"
+    output_dir: "outputs"
+    
+  # Data Processing
+  data_processing:
+    interpolation: "cubic"
+    normalization: true
+    remove_outliers: true
+    outlier_threshold: 3.0  # Standard deviations
+    
+  # Interactive Mode
+  interactive_mode:
+    enabled: false
+    pause_on_keyframe: true
+    allow_editing: true

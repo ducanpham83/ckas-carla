@@ -1,0 +1,11 @@
+route_id,spawn_point_id,destination_id,waypoint_x,waypoint_y,max_speed,max_acceleration,route_distance,route_duration
+# CSV Format for routes_plan.csv
+# route_id: Unique route identifier
+# spawn_point_id: Starting spawn point ID
+# destination_id: Ending spawn point ID
+# waypoint_x: X coordinate in CARLA map
+# waypoint_y: Y coordinate in CARLA map
+# max_speed: Maximum speed (m/s)
+# max_acceleration: Maximum acceleration (m/s²)
+# route_distance: Total distance (m)
+# route_duration: Expected duration (s)

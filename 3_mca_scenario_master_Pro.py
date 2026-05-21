@@ -144,6 +144,7 @@ class OfflineMissionPlanner:
         
         self.is_route_finalized = False
         self.show_map = True # BỔ SUNG DÒNG NÀY VÀO ĐÂY
+        self.show_spawns = True # <-- THÊM DÒNG NÀY (Mặc định mở khi load map)
         self.markers_plot = []
         self.bg_c, self.fg_c, self.grid_c = '#FFFFFF', '#000000', '#DDDDDD'
         
@@ -163,7 +164,7 @@ class OfflineMissionPlanner:
         self._draw_initial_map()
 
     def _build_gui(self):
-        l_frame = ttk.Frame(self.root, width=520); l_frame.pack(side="left", fill="y", padx=10, pady=5)
+        l_frame = ttk.Frame(self.root, width=410); l_frame.pack(side="left", fill="y", padx=10, pady=5)
         
         ttk.Label(l_frame, text="1. BẢN ĐỒ", font=('Arial', 10, 'bold')).pack(anchor="w")
         map_f = ttk.Frame(l_frame); map_f.pack(fill="x", pady=2)
@@ -176,17 +177,21 @@ class OfflineMissionPlanner:
         ttk.Button(tool_f, text="🏠 Toàn cảnh", command=self.zoom_home).pack(side="left", expand=True, padx=2)
         
         # NÚT MỚI THÊM VÀO:
-        ttk.Button(tool_f, text="👁️ Hiện/Ẩn Bản Đồ", command=self.toggle_map).pack(side="left", expand=True, padx=2)
-        
+        ttk.Button(tool_f, text="👁️ Bản Đồ", command=self.toggle_map).pack(side="left", expand=True, padx=2)
+        # CHÈN THÊM NÚT BẬT/TẮT SPAWN POINTS VÀO ĐÂY:
+        ttk.Button(tool_f, text="📍 Spawn Points", command=self.toggle_spawns).pack(side="left", expand=True, padx=2)
+        # NÚT HIỂN THỊ ĐÈN VÀ BIỂN BÁO
+        self.show_traffic_info = False # Biến trạng thái mặc định
+        ttk.Button(tool_f, text="🚦 Đèn & Biển báo", command=self.toggle_traffic_info).pack(side="left", expand=True, padx=2)
         self.map_style = "vector" # Biến trạng thái mặc định
 
         def toggle_map_style():
             self.map_style = "realistic" if self.map_style == "vector" else "vector"
             self.update_viz()
             
-        ttk.Button(tool_f, text="🖼️ Đổi Kiểu Nền (Vector / Pygame)", command=toggle_map_style).pack(side="left", expand=True, padx=2)
+        ttk.Button(tool_f, text="🖼️ Đổi Nền", command=toggle_map_style).pack(side="left", expand=True, padx=2)
         # Nút Toggle chế độ Zoom quét bằng chuột trái
-        self.btn_zoom = ttk.Button(tool_f, text="🔍 Bật Zoom Quét (Kéo chuột)", command=self.toggle_zoom)
+        self.btn_zoom = ttk.Button(tool_f, text="🔍 Zoom Quét", command=self.toggle_zoom)
         self.btn_zoom.pack(side="left", expand=True, padx=2)
         
         ttk.Button(l_frame, text="🕸️ XEM SƠ ĐỒ LIÊN KẾT ĐỘNG HỌC (L/C)", style="Accent.TButton", command=self.show_route_schematic).pack(fill="x", pady=5)
@@ -271,6 +276,11 @@ class OfflineMissionPlanner:
         self.fig.canvas.mpl_connect('button_press_event', self.on_press)
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_drag)
 
+    def toggle_spawns(self):
+        """Bật hoặc Tắt hiển thị danh sách các điểm Spawn Points trên bản đồ 2D"""
+        self.show_spawns = not self.show_spawns
+        self.update_viz()
+
     def on_scroll(self, event):
         base_scale = 1.2; ax = event.inaxes
         if not ax: return
@@ -283,6 +293,10 @@ class OfflineMissionPlanner:
         self.canvas.draw_idle()
 
     def on_press(self, event):
+        # --- [ĐÃ FIX] CHẶN CLICK CHỌN ĐIỂM KHI ĐANG BẬT ZOOM QUÉT HOẶC ĐANG DỊCH MAP (PAN) ---
+        if hasattr(self, 'toolbar') and self.toolbar.mode in ['zoom rect', 'pan/magnify']:
+            return # Thoát ngay lập tức, nhường chuột trái cho việc thao tác bản đồ
+        # ----------------------------------------------------------------------------------
         if event.button == 2: 
             self.last_x, self.last_y = event.xdata, event.ydata
         elif event.button == 1: 
@@ -318,7 +332,12 @@ class OfflineMissionPlanner:
         self.xs = np.array([sp['x'] for sp in self.spawn_pts])
         self.ys = np.array([-sp['y'] for sp in self.spawn_pts])
         self.update_viz()
-
+    
+    def toggle_traffic_info(self):
+        """Bật/tắt hiển thị đèn giao thông và biển báo tốc độ"""
+        self.show_traffic_info = not self.show_traffic_info
+        self.update_viz()
+    
     def on_scenario_change(self, event=None):
         for widget in self.dyn_frame.winfo_children(): widget.destroy()
         self.dyn_inputs.clear()
@@ -477,12 +496,44 @@ class OfflineMissionPlanner:
                             qdx.append(dx/d); qdy.append(dy/d)
                             q_c.append(math.degrees(math.atan2(dy,dx)))
                         
-                if qx: self.ax.quiver(qx, qy, qdx, qdy, q_c, cmap='hsv', scale=50, width=0.004, headwidth=4, alpha=0.5, clip_on=True, zorder=2)
+                if qx: 
+                    self.ax.quiver(qx, qy, qdx, qdy, q_c, cmap='hsv', 
+                                   scale=120,          # Tăng scale để thu ngắn chiều dài mũi tên
+                                   width=0.0016,       # Giảm góc thân mũi tên xuống 80% (0.004 * 0.2)
+                                   headwidth=2.5,      # Thu hẹp độ rộng ngạnh thiết kế đầu mũi tên
+                                   alpha=0.5, clip_on=True, zorder=2)
 
-            self.ax.scatter(self.xs, self.ys, c='#3498DB', s=60, edgecolors='black', zorder=5, clip_on=True)
-            for i, (x, y) in enumerate(zip(self.xs, self.ys)): 
-                self.ax.text(x, y+3, f"SP:{i}", fontsize=9, color='white', fontweight='bold', ha='center', bbox=dict(facecolor='#E74C3C', alpha=0.7, pad=1), clip_on=True)
+            # --- CHỈNH SỬA ĐOẠN NÀY: BAO BỌC BẰNG ĐIỀU KIỆN IF ---
+            if getattr(self, 'show_spawns', True):
+                # Vẽ các chấm tròn Spawn Points
+                self.ax.scatter(self.xs, self.ys, c='#3498DB', s=60, edgecolors='black', zorder=5, clip_on=True)
+                # Vẽ nhãn chữ SP:i kèm khung nền màu đỏ
+                for i, (x, y) in enumerate(zip(self.xs, self.ys)): 
+                    self.ax.text(x, y+3, f"{i}", fontsize=9, color='white', fontweight='bold', ha='center', bbox=dict(facecolor='#E74C3C', alpha=0.7, pad=1), clip_on=True)
+            # -----------------------------------------------------
         
+        self.ax.axis('equal')
+        # --- CHÈN CODE MỚI VÀO ĐÂY ---
+            # VẼ BIỂN BÁO VÀ ĐÈN GIAO THÔNG
+        if getattr(self, 'show_traffic_info', False):
+                # 1. Vẽ Đèn giao thông (Màu đỏ)
+                if 'traffic_lights' in self.map_data:
+                    tl_x = [tl['x'] for tl in self.map_data['traffic_lights']]
+                    tl_y = [-tl['y'] for tl in self.map_data['traffic_lights']] # Lật trục Y theo hệ tọa độ hiện tại
+                    self.ax.scatter(tl_x, tl_y, c='#E74C3C', s=50, marker='o', edgecolors='black', linewidths=1.5, zorder=6)
+                    for x, y in zip(tl_x, tl_y):
+                        self.ax.text(x, y + 2, "🚦", fontsize=10, ha='center', va='bottom', zorder=7, clip_on=True)
+
+                # 2. Vẽ Biển báo tốc độ (Hình lục giác màu vàng)
+                if 'speed_signs' in self.map_data:
+                    ss_x = [ss['x'] for ss in self.map_data['speed_signs']]
+                    ss_y = [-ss['y'] for ss in self.map_data['speed_signs']]
+                    # Vẽ viền biển báo
+                    self.ax.scatter(ss_x, ss_y, c='#F1C40F', s=180, marker='h', edgecolors='black', linewidths=1.5, zorder=6)
+                    # Điền giá trị tốc độ vào giữa biển báo
+                    for ss in self.map_data['speed_signs']:
+                        self.ax.text(ss['x'], -ss['y'], str(ss.get('value', 50)), fontsize=7, ha='center', va='center', color='black', fontweight='bold', zorder=7, clip_on=True)
+            # -----------------------------
         self.ax.axis('equal')
         self.ax.grid(True, linestyle='-', alpha=0.4, color=self.grid_c)
         
@@ -515,18 +566,33 @@ class OfflineMissionPlanner:
                 self.ax.text(px[mid], py[mid], lbl, color='black', fontsize=9, bbox=dict(facecolor='white', alpha=0.8, pad=1), clip_on=True)
                 
                 # Vẽ Vector Hướng (Heading) cho Quỹ Đạo
+                # --- [ĐÃ FIX] VẼ VECTOR HƯỚNG QUỸ ĐẠO AN TOÀN ĐỒNG BỘ MẢNG ---
                 if len(px) > 2:
                     step = max(1, len(px) // 10) 
                     qx, qy, qdx, qdy = [], [], [], []
-                    for k in range(0, len(px)-1, step):
-                        qx.append(px[k]); qy.append(py[k])
-                        dx, dy = px[k+1] - px[k], py[k+1] - py[k]
+                    
+                    # Chạy đến len(px)-1 để đảm bảo k+1 luôn hợp lệ bên trong mảng
+                    for k in range(0, len(px) - 1, step):
+                        dx = px[k+1] - px[k]
+                        dy = py[k+1] - py[k]
                         length = math.hypot(dx, dy)
+                        
                         if length > 0: 
-                            qdx.append(dx/length); qdy.append(dy/length)
-                    self.ax.scatter(qx, qy, color='black', s=10, zorder=9, clip_on=True)
-                    self.ax.quiver(qx, qy, qdx, qdy, color='black', scale=25, width=0.003, headwidth=4, zorder=10, clip_on=True)
-
+                            # Chỉ thêm vào vị trí GỐC (qx, qy) khi HƯỚNG (qdx, qdy) tính toán thành công
+                            qx.append(px[k])
+                            qy.append(py[k])
+                            qdx.append(dx / length)
+                            qdy.append(dy / length)
+                            
+                    # Kiểm tra danh sách có dữ liệu trước khi vẽ để tránh mảng rỗng
+                    if qx:
+                        self.ax.scatter(qx, qy, color='black', s=10, zorder=9, clip_on=True)
+                        self.ax.quiver(qx, qy, qdx, qdy, color='black', 
+                                       scale=100,          # Tăng scale để mũi tên ngắn lại tương ứng với bản đồ
+                                       width=0.0006,       # Giảm độ dày thân mũi tên xuống 80% (0.003 * 0.2)
+                                       headwidth=2.5,      # Thu nhỏ độ rộng đầu mũi tên
+                                       zorder=10, clip_on=True)
+                # -----------------------------------------------------------------
                 marker = '*' if (i==len(self.route_segments)-1 and self.is_route_finalized) else 'o'
                 m_c = '#E74C3C' if marker=='*' else '#F39C12'
                 self.ax.scatter(self.xs[idx], self.ys[idx], c=m_c, s=150 if marker=='o' else 350, marker=marker, edgecolors='black', zorder=10, clip_on=True)
@@ -977,15 +1043,15 @@ class OfflineMissionPlanner:
         """Bật/Tắt chế độ kéo chuột trái để Zoom vùng (Rectangle Zoom)"""
         self.toolbar.zoom() # Gọi chức năng Zoom Rectangle của Matplotlib
         if self.toolbar.mode == 'zoom rect':
-            self.btn_zoom.config(text="❌ Tắt Zoom Quét (Để click chọn điểm)")
-            messagebox.showinfo("Chế độ Zoom", "Đã BẬT Zoom Quét.\nThầy hãy NHẤN GIỮ CHUỘT TRÁI và kéo thành hình chữ nhật trên bản đồ để phóng to vùng đó.\n(Nhớ tắt đi để có thể click chọn Spawn Point).")
+            self.btn_zoom.config(text="❌ Tắt Zoom Quét")
+            messagebox.showinfo("Chế độ Zoom", "Đã BẬT Zoom Quét.NHẤN GIỮ CHUỘT TRÁI kéo hình chữ nhật trên bản đồ để phóng to vùng đó.\n(Nhớ tắt đi để có thể click chọn Spawn Point).")
         else:
-            self.btn_zoom.config(text="🔍 Bật Zoom Quét (Kéo chuột)")
+            self.btn_zoom.config(text="🔍 Zoom Quét")
 
     def show_route_schematic(self):
         """Vẽ sơ đồ liên kết các Spawn Point (L/C và Khoảng cách)"""
         if len(self.route_segments) < 2:
-            return messagebox.showwarning("Nhắc nhở", "Thầy cần vạch ít nhất 1 đoạn đường để tạo sơ đồ liên kết.")
+            return messagebox.showwarning("Nhắc nhở", "Cần vạch ít nhất 1 đoạn đường để tạo sơ đồ liên kết.")
             
         top = tk.Toplevel(self.root)
         top.title("Sơ đồ Liên kết Động học (Topological Schematic)")
@@ -1006,7 +1072,7 @@ class OfflineMissionPlanner:
         for i, seg in enumerate(self.route_segments):
             sp_idx = seg['end_idx']
             # Tên Node
-            ax.text(i, 0.05, f"SP:{sp_idx}", ha='center', va='bottom', fontweight='bold', fontsize=11)
+            ax.text(i, 0.05, f"{sp_idx}", ha='center', va='bottom', fontweight='bold', fontsize=11)
             
             # Nếu không phải điểm Start, vẽ thông tin cạnh (Edge) ở giữa 2 Node
             if i > 0:

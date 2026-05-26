@@ -188,7 +188,8 @@ class MCA6DOFEvaluatorApp:
         ttk.Checkbutton(f_ctrl, text="🧮 Tích hợp Gia tốc Hướng tâm (Centrifuge)", variable=self.centrifuge_var, command=self.recalculate_all).pack(anchor=tk.W, padx=10, pady=5)
         ttk.Button(f_ctrl, text="🗑 Xóa tất cả Dữ liệu", command=self.clear_data).pack(fill=tk.X, padx=10, pady=5)
         ttk.Button(f_ctrl, text="💾 Xuất Toàn bộ Bảng (CSV)", command=self.export_results).pack(fill=tk.X, padx=10, pady=(5,10))
-        
+        ttk.Button(f_ctrl, text="💽 Xuất Dữ liệu Tín hiệu (.MAT)", command=self.export_mat_data).pack(fill=tk.X, padx=10, pady=(0,10))
+
         f_axis = ttk.LabelFrame(f_left, text=" 2. LỰA CHỌN TỔ HỢP TRỤC ")
         f_axis.pack(fill=tk.X, pady=10)
         f_t_axis = ttk.Frame(f_axis); f_t_axis.pack(fill=tk.X, padx=5, pady=5)
@@ -292,53 +293,159 @@ class MCA6DOFEvaluatorApp:
     # TAB 4: ĐÁNH GIÁ CHỦ QUAN VÀ TƯƠNG QUAN
     # -----------------------------------------------------------------------
     def setup_subj_tab(self):
-        # KHUNG TRÁI: Dữ liệu Chủ quan & Lọc nhiễu
-        f_left = ttk.Frame(self.tab_subj) # Đổi self.tab3 thành tên tab tương ứng của bạn
-        f_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # TẦNG 1: ĐIỀU KHIỂN & CHỌN BIẾN
+        f_top = ttk.Frame(self.tab_subj)
+        f_top.pack(fill=tk.X, padx=10, pady=5)
         
-        f_input = ttk.LabelFrame(f_left, text=" 1. Nạp & Lọc Dữ liệu Chủ quan ")
-        f_input.pack(fill=tk.X, pady=5)
-        ttk.Button(f_input, text="Tải File CSV", command=self.process_subjective_v2).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(f_top, text="Tải File CSV", command=self.process_subjective_v2).pack(side=tk.LEFT, padx=(0, 10))
         
-        # Bảng hiển thị Raw vs Filtered
-        cols_data = ("Subject", "Algorithm", "Raw", "Filtered", "Ghi chú")
-        self.tv_data = ttk.Treeview(f_left, columns=cols_data, show="headings", height=8)
+        ttk.Label(f_top, text="Tiêu chí:").pack(side=tk.LEFT, padx=2)
+        self.cb_metric_subj = ttk.Combobox(f_top, state="readonly", width=18)
+        self.cb_metric_subj.pack(side=tk.LEFT, padx=2)
+        
+        # Thêm Combobox chọn dạng hàm (Yêu cầu 1)
+        ttk.Label(f_top, text="Dạng hàm:").pack(side=tk.LEFT, padx=(10, 2))
+        self.cb_func_type = ttk.Combobox(f_top, state="readonly", width=18, 
+                                         values=["Tự động (Best R²)", "Tuyến tính", "Bậc 2", "Bậc 3", "Hàm Mũ", "Logarit"])
+        self.cb_func_type.current(0)
+        self.cb_func_type.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(f_top, text="Vẽ Đồ Thị Tương Quan", command=self.run_regression).pack(side=tk.LEFT, padx=5)
+        
+        # Thêm nút Vẽ lại Mean-STD (Yêu cầu 3)
+        ttk.Button(f_top, text="Vẽ lại Mean-STD", command=self.redraw_mean_std).pack(side=tk.LEFT, padx=5)
+        
+        self.lbl_result_subj = ttk.Label(self.tab_subj, text="Mô hình Tối ưu: Trống", font=('Consolas', 10, 'bold'), foreground='#d83b01')
+        self.lbl_result_subj.pack(anchor='w', padx=10, pady=2)
+        
+        # ... (Giữ nguyên phần f_mid và f_bot ở bên dưới) ...
+        
+        # TẦNG 2: LOG, ĐỒ THỊ & BẢNG LỌC NHIỄU OLS
+        f_mid = ttk.Frame(self.tab_subj)
+        f_mid.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Log bên trái
+        self.log_tab_subj = tk.Text(f_mid, width=35, wrap='word', bg='#f9f9f9', font=("Consolas", 9))
+        self.log_tab_subj.pack(side=tk.LEFT, fill=tk.Y, padx=(0,5))
+        self.log_tab_subj.insert(tk.END, "Quy trình:\n1. Tải CSV\n2. Xóa dị biệt OLS\n3. Tính ICC\n")
+        
+        # Đồ thị ở giữa
+        self.fig_subj, self.ax_subj = plt.subplots(figsize=(5, 3))
+        self.canvas_subj = FigureCanvasTkAgg(self.fig_subj, master=f_mid)
+        self.canvas_subj.get_tk_widget().pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
+        
+        # Bảng Raw/Filtered bên phải
+        cols_data = ("Subject", "Algo", "Raw", "Filt", "Note")
+        self.tv_data = ttk.Treeview(f_mid, columns=cols_data, show="headings")
         for c in cols_data: self.tv_data.heading(c, text=c)
-        self.tv_data.column("Subject", width=60); self.tv_data.column("Algorithm", width=100)
-        self.tv_data.column("Raw", width=60); self.tv_data.column("Filtered", width=60)
-        self.tv_data.column("Ghi chú", width=180)
-        self.tv_data.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.tv_data.tag_configure('changed', background='#ffcccc') # Highlight màu đỏ nhạt nếu có thay đổi
-        
-        # Biểu đồ Mean & Variance
-        self.fig_mean, self.ax_mean = plt.subplots(figsize=(5, 3))
-        self.canvas_mean = FigureCanvasTkAgg(self.fig_mean, master=f_left)
-        self.canvas_mean.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.tv_data.column("Subject", width=50); self.tv_data.column("Algo", width=80)
+        self.tv_data.column("Raw", width=40); self.tv_data.column("Filt", width=40); self.tv_data.column("Note", width=120)
+        self.tv_data.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.tv_data.tag_configure('changed', background='#ffcccc')
 
-        # KHUNG PHẢI: Phân tích Tương quan Tổ hợp
-        f_right = ttk.Frame(self.tab_subj)
-        f_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # TẦNG 3: KHU VỰC VÉT CẠN TỔ HỢP (COMBINATORIAL REGRESSION)
+        f_bot = ttk.Frame(self.tab_subj)
+        f_bot.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        f_config = ttk.LabelFrame(f_right, text=" 2. Phân tích Tương quan Tổ hợp (Objective vs Subjective) ")
-        f_config.pack(fill=tk.X, pady=5)
+        f_bot_left = ttk.Frame(f_bot)
+        f_bot_left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        ttk.Label(f_bot_left, text="Chọn Tổ hợp Tiêu chí (Giữ Ctrl):").pack(anchor=tk.W)
         
-        ttk.Label(f_config, text="Chọn các tiêu chí Khách quan (Giữ Ctrl để chọn nhiều):").pack(anchor=tk.W, padx=5)
-        self.lb_metrics = tk.Listbox(f_config, selectmode=tk.MULTIPLE, height=5)
-        self.lb_metrics.pack(fill=tk.X, padx=5, pady=2)
+        # BIẾN LB_METRICS ĐÃ ĐƯỢC KHÔI PHỤC (exportselection=0 giúp không bị mất highlight khi click ra ngoài)
+        self.lb_metrics = tk.Listbox(f_bot_left, selectmode=tk.MULTIPLE, height=6, exportselection=0)
+        self.lb_metrics.pack(fill=tk.X, pady=2)
+        ttk.Button(f_bot_left, text="Hồi quy Vét cạn Tổ hợp", command=self.run_combinatorial_regression).pack(fill=tk.X, pady=2)
+        ttk.Button(f_bot_left, text="Xuất Bảng Công Thức (CSV)", command=self.export_formulas).pack(fill=tk.X, pady=2)
         
-        f_btn = ttk.Frame(f_config)
-        f_btn.pack(fill=tk.X, pady=5)
-        ttk.Button(f_btn, text="Phân tích Hồi quy Vét cạn", command=self.run_combinatorial_regression).pack(side=tk.LEFT, padx=5)
-        ttk.Button(f_btn, text="Lưu Bảng Công Thức (CSV)", command=self.export_formulas).pack(side=tk.LEFT, padx=5)
-        
-        # Bảng hiển thị kết quả hàm tương quan
+        # CHÈN THÊM DÒNG NÀY VÀO:
+        ttk.Button(f_bot_left, text="🗑 Xóa Bảng Kết Quả", command=self.clear_correlation_table).pack(fill=tk.X, pady=2)
+        # Bảng kết quả hồi quy vét cạn
         cols_corr = ("Loại Hàm", "Tổ hợp Tiêu chí", "Phương trình", "R²", "RMSE")
-        self.tv_corr = ttk.Treeview(f_right, columns=cols_corr, show="headings", height=12)
+        self.tv_corr = ttk.Treeview(f_bot, columns=cols_corr, show="headings", height=6)
         for c in cols_corr: self.tv_corr.heading(c, text=c)
         self.tv_corr.column("Loại Hàm", width=80); self.tv_corr.column("Tổ hợp Tiêu chí", width=150)
-        self.tv_corr.column("Phương trình", width=300); self.tv_corr.column("R²", width=60); self.tv_corr.column("RMSE", width=60)
-        self.tv_corr.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.tv_corr.tag_configure('best', background='#d4edda', font=('Segoe UI', 9, 'bold')) # Highlight màu xanh lá
+        self.tv_corr.column("Phương trình", width=300); self.tv_corr.column("R²", width=50); self.tv_corr.column("RMSE", width=50)
+        self.tv_corr.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.tv_corr.tag_configure('best', background='#d4edda', font=('Segoe UI', 9, 'bold'))
+        # Thêm dòng hướng dẫn cho người dùng
+        ttk.Label(f_bot, text="* Kích đúp (Double-click) chuột vào một hàng để vẽ đồ thị Đa biến", foreground="blue").pack(anchor=tk.W, pady=(5,0))
+        
+        # Liên kết sự kiện click đúp chuột với hàm vẽ
+        self.tv_corr.bind("<Double-1>", self.plot_selected_multivar)
+
+    def redraw_mean_std(self):
+        """Vẽ lại biểu đồ Điểm trung bình và Phương sai ban đầu"""
+        if not hasattr(self, 'df_subj_mean') or self.df_subj_mean is None:
+            messagebox.showwarning("Cảnh báo", "Bạn chưa tải dữ liệu CSV Chủ quan.")
+            return
+            
+        stats = self.df_subj_mean
+        self.ax_subj.clear()
+        self.ax_subj.bar(stats['Algorithm'], stats['SMC'], yerr=stats['std'], capsize=5, color='#4c72b0', alpha=0.8, edgecolor='black')
+        self.ax_subj.set_title("Điểm Trung bình & Phương sai (Đã lọc)")
+        self.ax_subj.set_ylabel("Score")
+        plt.setp(self.ax_subj.get_xticklabels(), rotation=15, ha="right")
+        self.fig_subj.tight_layout()
+        self.canvas_subj.draw()
+        
+        self.lbl_result_subj.config(text="Đang hiển thị biểu đồ Mean - STD của dữ liệu Khảo sát.")
+
+    def plot_selected_multivar(self, event):
+        """Vẽ đồ thị Predicted vs Actual khi double-click vào bảng Hồi quy vét cạn"""
+        selected_item = self.tv_corr.selection()
+        if not selected_item: return
+        
+        item = self.tv_corr.item(selected_item[0])
+        values = item['values']
+        if not values: return
+        
+        func_type = values[0]
+        combo_str = values[1]
+        
+        if "Tổ hợp" not in str(func_type):
+            messagebox.showinfo("Thông báo", "Vui lòng chọn một hàm tổ hợp đa biến để vẽ đồ thị.")
+            return
+            
+        variables = [v.strip() for v in str(combo_str).split('+')]
+        
+        try:
+            X_multi = self.df_merged[variables].values
+            y_true = self.df_merged['SMC'].values
+            
+            # Tính toán lại phương trình dự đoán
+            X_design = np.column_stack([X_multi, np.ones(len(X_multi))])
+            weights, _, _, _ = np.linalg.lstsq(X_design, y_true, rcond=None)
+            y_pred = X_design @ weights
+            
+            self.ax_subj.clear()
+            # Vẽ các điểm dữ liệu
+            self.ax_subj.scatter(y_pred, y_true, color='purple', s=100, edgecolors='black', zorder=5)
+            
+            # Vẽ đường Lý tưởng (Mô hình hoàn hảo y = x)
+            min_val = min(min(y_pred), min(y_true)) - 0.2
+            max_val = max(max(y_pred), max(y_true)) + 0.2
+            self.ax_subj.plot([min_val, max_val], [min_val, max_val], color='gray', linestyle='--', label='Đường lý tưởng (Khớp 100%)')
+            
+            # Vẽ đường xu hướng thực tế của mô hình
+            popt, _ = np.polyfit(y_pred, y_true, 1)
+            p = np.poly1d(popt)
+            self.ax_subj.plot(np.sort(y_pred), p(np.sort(y_pred)), color='crimson', linestyle='-', linewidth=2, label='Xu hướng thực tế')
+            
+            for i, txt in enumerate(self.df_merged['Algorithm']):
+                self.ax_subj.annotate(txt, (y_pred[i], y_true[i]), xytext=(5,5), textcoords='offset points', fontweight='bold', fontsize=8)
+                
+            self.ax_subj.set_title(f'Đánh giá Tổ hợp: {combo_str}', fontweight='bold', fontsize=10)
+            self.ax_subj.set_xlabel('Điểm Dự đoán từ Phương trình (Predicted Score)')
+            self.ax_subj.set_ylabel('Điểm Khảo sát Thực tế (Actual Score)')
+            self.ax_subj.grid(True, linestyle='--', alpha=0.7)
+            self.ax_subj.legend()
+            self.fig_subj.tight_layout()
+            self.canvas_subj.draw()
+            
+            self.lbl_result_subj.config(text=f"Đang hiển thị Tổ hợp Đa biến (R² = {values[3]}) | RMSE = {values[4]}")
+            
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể vẽ đồ thị: {str(e)}")
 
     # -----------------------------------------------------------------------
     # LOGIC: XỬ LÝ KHÁCH QUAN & CẬP NHẬT GIAO DIỆN
@@ -415,6 +522,57 @@ class MCA6DOFEvaluatorApp:
             pd.DataFrame(data_list).to_csv(filepath, index=False, encoding='utf-8-sig')
             messagebox.showinfo("Thành công", "Đã xuất bảng kết quả ra file CSV.")
 
+    def export_mat_data(self):
+        """Xuất dữ liệu tín hiệu đã qua xử lý (bao gồm gia tốc ly tâm) ra file .MAT"""
+        if not self.datasets:
+            messagebox.showwarning("Cảnh báo", "Chưa có dữ liệu nào được nạp.")
+            return
+            
+        export_dir = filedialog.askdirectory(title="Chọn thư mục để lưu các file .MAT mới")
+        if not export_dir: return
+        
+        cmode = self.centrifuge_var.get()
+        
+        try:
+            for name, data in self.datasets.items():
+                df = data['df']
+                t = df['t'].values
+                dt = np.mean(np.diff(t)) if len(t) > 1 else 0.01
+                
+                # Khôi phục cấu trúc ma trận 3 cột (x, y, z)
+                Pf = np.column_stack([df['ax_ref'], df['ay_ref'], df['az_ref']]) if 'ax_ref' in df else np.zeros((len(t), 3))
+                Pfsim = np.column_stack([df['ax_sim'], df['ay_sim'], df['az_sim']]) if 'ax_sim' in df else np.zeros((len(t), 3))
+                Pw = np.column_stack([df['wx_ref'], df['wy_ref'], df['wz_ref']]) if 'wx_ref' in df else np.zeros((len(t), 3))
+                Pwsim = np.column_stack([df['wx_sim'], df['wy_sim'], df['wz_sim']]) if 'wx_sim' in df else np.zeros((len(t), 3))
+                Sd = np.column_stack([df['px_sim'], df['py_sim'], df['pz_sim']]) if 'px_sim' in df else np.zeros((len(t), 3))
+                
+                # Ghi đè gia tốc ly tâm nếu được bật
+                if cmode:
+                    r_xE0 = 0.465; r_yE0 = 2.637; bE0 = 0.35
+                    R_cir = np.sqrt(r_yE0**2 + r_xE0**2) + bE0
+                    ay_accel = df['pa_y_sim'].values if 'pa_y_sim' in df.columns else np.gradient(np.gradient(df['py_sim'].values, dt), dt)
+                        
+                    alpha_dotdot = ay_accel / R_cir
+                    alpha_dot = cumulative_trapezoid(alpha_dotdot, t, initial=0) 
+                    centri_accel = R_cir * (alpha_dot**2)
+                    
+                    Pfsim[:, 0] = centri_accel  # Cập nhật Surge (ax)
+                    Pwsim[:, 2] = alpha_dot     # Cập nhật Yaw (wz)
+                
+                mat_dict = {'t_sim': t, 'Pf': Pf, 'Pfsim': Pfsim, 'Pw': Pw, 'Pwsim': Pwsim, 'Sd': Sd}
+                
+                if 'roll_sim' in df.columns:
+                    mat_dict['Betasim'] = np.column_stack([df['roll_sim'], df['pitch_sim'], df['yaw_sim']])
+                if 'pa_x_sim' in df.columns:
+                    mat_dict['Pasim'] = np.column_stack([df['pa_x_sim'], df['pa_y_sim'], df['pa_z_sim']])
+                    
+                filepath = os.path.join(export_dir, f"{name}_Centrifuge.mat" if cmode else f"{name}_Exported.mat")
+                sio.savemat(filepath, mat_dict)
+                
+            messagebox.showinfo("Thành công", f"Đã xuất {len(self.datasets)} file .MAT vào thư mục:\n{export_dir}")
+        except Exception as e:
+            messagebox.showerror("Lỗi xuất file", f"Đã xảy ra lỗi: {str(e)}")
+
     def export_single_metric_table(self):
         if not self.datasets: return
         metric_name = self.cb_metric.get()
@@ -449,7 +607,11 @@ class MCA6DOFEvaluatorApp:
         filepath = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
         if not filepath: return
         try:
-            # === ĐOẠN CODE CẬP NHẬT CHỐNG LỖI JAGGED CSV ===
+            # --- 1. RESET LOG VÀ HIỂN THỊ HƯỚNG DẪN ---
+            self.log_tab_subj.delete('1.0', tk.END)
+            self.log_tab_subj.insert(tk.END, "Quy trình đánh giá độ tin cậy:\n1. Tải file CSV\n2. Xóa dị biệt OLS\n3. Tính ICC\n")
+            self.log_tab_subj.insert(tk.END, f"\nĐang xử lý: {os.path.basename(filepath)}...\n")
+            
             df = None
             encodings = ['utf-8-sig', 'utf-8', 'latin1']
             delimiters = [',', ';', '\t']
@@ -457,8 +619,7 @@ class MCA6DOFEvaluatorApp:
             for enc in encodings:
                 for delim in delimiters:
                     try:
-                        # Bỏ sep=None, ép dùng engine='c' chuẩn để xử lý tốt các dấu phẩy thừa
-                        temp_df = pd.read_csv(filepath, encoding=enc, sep=delim, on_bad_lines='skip')
+                        temp_df = pd.read_csv(filepath, encoding=enc, sep=delim, header=0, on_bad_lines='skip')
                         if len(temp_df.columns) > 1:
                             df = temp_df
                             break
@@ -469,23 +630,23 @@ class MCA6DOFEvaluatorApp:
                     
             if df is None:
                 raise ValueError("Không thể đọc file CSV. Dữ liệu có thể bị hỏng cấu trúc cột.")
-            # ===============================================
 
-            # Xóa cột rỗng và đổi tên cột đầu tiên thành Algorithm
             df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-            df.columns = ['Algorithm'] + list(df.columns[1:])
+            col_names = list(df.columns)
+            col_names[0] = 'Algorithm'
+            df.columns = col_names
             df['Algorithm'] = df['Algorithm'].astype(str).str.strip()
             
-            # Chuyển đổi dữ liệu sang dạng cột dài (Melt)
             df_long = pd.melt(df, id_vars=['Algorithm'], var_name='Subject', value_name='Score')
             df_long.dropna(subset=['Score'], inplace=True)
             
-            # Xử lý dấu phẩy thập phân (nếu có)
             if df_long['Score'].dtype == object:
                 df_long['Score'] = df_long['Score'].astype(str).str.replace(',', '.').astype(float)
             df_long['Raw_Score'] = df_long['Score'].astype(float)
             
-            # Khử nhiễu OLS
+            icc_raw = pg.intraclass_corr(data=df_long, targets='Algorithm', raters='Subject', ratings='Score')
+            icc3k_raw = icc_raw[icc_raw['Type'] == 'ICC3k'].iloc[0]['ICC']
+            
             model = ols('Raw_Score ~ C(Algorithm) + C(Subject)', data=df_long).fit()
             df_long['Residuals'] = model.resid
             df_long['Std_Residuals'] = (df_long['Residuals'] - df_long['Residuals'].mean()) / df_long['Residuals'].std()
@@ -495,128 +656,137 @@ class MCA6DOFEvaluatorApp:
             df_long.loc[outlier_mask, 'Filtered_Score'] = model.fittedvalues[outlier_mask]
             df_long['Note'] = np.where(outlier_mask, "Lọc nhiễu (Residual > 2σ)", "Giữ nguyên")
             
-            # Xóa data cũ trên UI và điền data mới (Hiển thị Raw vs Filtered)
+            icc_filt = pg.intraclass_corr(data=df_long, targets='Algorithm', raters='Subject', ratings='Filtered_Score')
+            icc3k_filt = icc_filt[icc_filt['Type'] == 'ICC3k'].iloc[0]['ICC']
+            
+            stats = df_long.groupby('Algorithm')['Filtered_Score'].agg(['mean', 'std']).reset_index()
+            
+            # ÉP SẮP XẾP TÊN THUẬT TOÁN THEO THỨ TỰ SỐ (1, 2, 3... 12)
+            stats['SortKey'] = pd.to_numeric(stats['Algorithm'].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
+            stats = stats.sort_values('SortKey').drop(columns=['SortKey'])
+            
+            stats.rename(columns={'mean': 'SMC'}, inplace=True)
+            self.df_subj_mean = stats 
+            
+            # --- 2. GHI CÁC THÔNG SỐ VÀO LOG ---
+            self.log_tab_subj.insert(tk.END, f"\n--- ĐỘ TIN CẬY DỮ LIỆU ---\n")
+            self.log_tab_subj.insert(tk.END, f"ICC(3,k) Dữ liệu thô: {icc3k_raw:.4f}\n")
+            self.log_tab_subj.insert(tk.END, f"ICC(3,k) Sau lọc: {icc3k_filt:.4f}\n")
+            self.log_tab_subj.insert(tk.END, f"Số điểm dữ liệu bị lọc: {outlier_mask.sum()}\n")
+            
+            self.log_tab_subj.insert(tk.END, f"\n--- GIÁ TRỊ TRUNG BÌNH & STD ---\n")
+            self.log_tab_subj.insert(tk.END, stats.to_string(index=False) + "\n")
+            self.log_tab_subj.see(tk.END) # Cuộn log xuống dòng cuối
+            
+            # --- 3. CẬP NHẬT GIAO DIỆN KHÁC ---
             for row in self.tv_data.get_children(): self.tv_data.delete(row)
             for _, r in df_long.iterrows():
                 tag = 'changed' if r['Note'] != "Giữ nguyên" else ''
                 self.tv_data.insert("", tk.END, values=(r['Subject'], r['Algorithm'], f"{r['Raw_Score']:.2f}", f"{r['Filtered_Score']:.2f}", r['Note']), tags=(tag,))
                 
-            # Tính Mean & Variance
-            stats = df_long.groupby('Algorithm')['Filtered_Score'].agg(['mean', 'std']).reset_index()
-            stats.rename(columns={'mean': 'Subjective_Mean_Score'}, inplace=True)
-            self.df_subj = stats
-            
-            # Vẽ biểu đồ Mean & Variance (Error bars)
-            self.ax_mean.clear()
-            self.ax_mean.bar(stats['Algorithm'], stats['Subjective_Mean_Score'], yerr=stats['std'], capsize=5, color='#4c72b0', alpha=0.8, edgecolor='black')
-            self.ax_mean.set_title("Điểm Trung bình & Phương sai (Sau khi lọc)")
-            self.ax_mean.set_ylabel("Điểm Chủ quan")
-            plt.setp(self.ax_mean.get_xticklabels(), rotation=15, ha="right")
-            self.fig_mean.tight_layout()
-            self.canvas_mean.draw()
-            
-            # Cập nhật danh sách tiêu chí Khách quan để User chọn
-            # GHI CHÚ: Tương tự lỗi ghép tên thuật toán (MergeKey) ở bước trước
-            if hasattr(self, 'df_obj') and self.df_obj is not None:
-                self.df_subj['MergeKey'] = self.df_subj['Algorithm'].astype(str).str.extract(r'(\d+)')[0]
-                self.df_obj['MergeKey'] = self.df_obj['Algorithm'].astype(str).str.extract(r'(\d+)')[0]
-                self.df_subj['MergeKey'] = self.df_subj['MergeKey'].fillna(self.df_subj['Algorithm'].astype(str))
-                self.df_obj['MergeKey'] = self.df_obj['MergeKey'].fillna(self.df_obj['Algorithm'].astype(str))
+            self.ax_subj.clear()
+            self.ax_subj.bar(stats['Algorithm'], stats['SMC'], yerr=stats['std'], capsize=5, color='#4c72b0', alpha=0.8, edgecolor='black')
+            self.ax_subj.set_title("Điểm Trung bình & Phương sai (Đã lọc)")
+            self.ax_subj.set_ylabel("Score")
+            plt.setp(self.ax_subj.get_xticklabels(), rotation=15, ha="right")
+            self.fig_subj.tight_layout()
+            self.canvas_subj.draw()
 
-                self.df_merged = pd.merge(self.df_subj, self.df_obj, on='MergeKey', how='inner', suffixes=('_subj', '_obj'))
-                if 'Algorithm_obj' in self.df_merged.columns:
-                    self.df_merged['Algorithm'] = self.df_merged['Algorithm_obj']
-
-                obj_cols = [c for c in self.df_merged.columns if c not in ['Algorithm', 'Algorithm_subj', 'Algorithm_obj', 'MergeKey', 'Subjective_Mean_Score', 'std']]
-                
-                self.lb_metrics.delete(0, tk.END)
-                for c in obj_cols: self.lb_metrics.insert(tk.END, c)
-                
+            self.refresh_metrics_list()
             messagebox.showinfo("Hoàn tất", "Đã nạp, lọc nhiễu OLS và vẽ phổ thành công!")
         except Exception as e:
             messagebox.showerror("Lỗi", str(e))
 
     def run_regression(self):
         df_obj = self.get_objective_dataframe()
-        if self.df_subj is None or df_obj is None:
+        if not hasattr(self, 'df_subj_mean') or self.df_subj_mean is None or df_obj is None:
             messagebox.showwarning("Cảnh báo", "Hãy nạp dữ liệu Khách quan (Tab 1) và Chủ quan (Tab 4) trước.")
             return
             
-        # ==============================================================
-        # BẢN VÁ LỖI TRÙNG TÊN THUẬT TOÁN (TÁCH SỐ ĐỂ MATCHING)
-        # ==============================================================
-        # Trích xuất chữ số từ tên thuật toán để làm khóa nối (MergeKey)
-        # VD: "Data_1" -> "1", "Algo 2" -> "2", "1" -> "1"
-        self.df_subj['MergeKey'] = self.df_subj['Algorithm'].astype(str).str.extract(r'(\d+)')[0]
-        df_obj['MergeKey'] = df_obj['Algorithm'].astype(str).str.extract(r'(\d+)')[0]
-        
-        # Nếu có thuật toán không có số (VD: "CWA_Goc"), dùng tên gốc làm dự phòng
-        self.df_subj['MergeKey'] = self.df_subj['MergeKey'].fillna(self.df_subj['Algorithm'].astype(str))
-        df_obj['MergeKey'] = df_obj['MergeKey'].fillna(df_obj['Algorithm'].astype(str))
+        # =================================================================
+        # BẢN CHUẨN HÓA DÀNH CHO TÊN THUẬT TOÁN ĐÁNH SỐ TỪ 1 ĐẾN 12
+        # =================================================================
+        # 1. Trích xuất chính xác con số từ tên (VD: "1", "1.0", "Data_1" đều sẽ thành số nguyên 1)
+        self.df_subj_mean['MergeKey'] = pd.to_numeric(self.df_subj_mean['Algorithm'].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
+        df_obj['MergeKey'] = pd.to_numeric(df_obj['Algorithm'].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
 
-        # Hợp nhất dựa trên MergeKey thay vì Algorithm
-        self.df_merged = pd.merge(self.df_subj, df_obj, on='MergeKey', how='inner', suffixes=('_subj', '_obj'))
+        # 2. Hợp nhất dữ liệu theo số nguyên để không bị trượt dòng nào
+        self.df_merged = pd.merge(self.df_subj_mean, df_obj, on='MergeKey', how='inner', suffixes=('_subj', '_obj'))
         
-        # Giữ lại tên file .MAT gốc để hiển thị trên đồ thị cho chuyên nghiệp
+        # 3. Ép sắp xếp thứ tự chuẩn theo số đếm 1, 2, 3... 12 (Tránh lỗi 1, 10, 11, 2...)
+        self.df_merged = self.df_merged.sort_values('MergeKey')
+        
+        # Lấy lại tên gốc để hiển thị trên đồ thị
         if 'Algorithm_obj' in self.df_merged.columns:
-            self.df_merged['Algorithm'] = self.df_merged['Algorithm_obj']
-        # ==============================================================
-
+            self.df_merged['Algorithm'] = self.df_merged['Algorithm_obj'].astype(str).str.replace(".mat", "", regex=False)
+            
         if self.df_merged.empty:
-            messagebox.showerror("Lỗi ghép dữ liệu", "Không thể map dữ liệu CSV và MAT. Vui lòng kiểm tra lại số thứ tự thuật toán.")
+            messagebox.showerror("Lỗi ghép dữ liệu", "Không có thuật toán nào khớp nhau! Hãy kiểm tra lại số 1-12.")
             return
+        # =================================================================
 
         x_col = self.cb_metric_subj.get()
-        if not x_col or x_col not in self.df_merged.columns: return
+        if not x_col or x_col not in self.df_merged.columns:
+            messagebox.showwarning("Nhắc nhở", "Vui lòng chọn 1 tiêu chí khách quan từ danh sách.")
+            return
             
         x = self.df_merged[x_col].values
-        y = self.df_merged['Subjective_Mean_Score'].values
+        y = self.df_merged['SMC'].values
+        # Lấy thêm mảng độ lệch chuẩn để vẽ error bar
+        y_err = self.df_merged['std'].values if 'std' in self.df_merged.columns else None
         
-        models = {
-            'Tuyến tính (Linear)': lambda x, a, b: a*x + b,
-            'Bậc 2 (Quadratic)': lambda x, a, b, c: a*x**2 + b*x + c,
-            'Bậc 3 (Cubic)': lambda x, a, b, c, d: a*x**3 + b*x**2 + c*x + d,
-            'Hàm mũ (Exponential)': lambda x, a, b, c: a * np.exp(b * x) + c,
-            'Logarit (Logarithmic)': lambda x, a, b: a * np.log(np.abs(x) + 1e-5) + b
-        }
+        func_type = self.cb_func_type.get()
+        models = {}
         
-        best_name, best_func, best_popt, best_r2 = None, None, None, -np.inf
+        # Định nghĩa các hàm và bộ tạo chuỗi phương trình
+        if func_type in ["Tự động (Best R²)", "Tuyến tính"]:
+            models['Tuyến tính'] = (lambda x, a, b: a*x + b, lambda p: f"y = {p[0]:.4g}x + {p[1]:.4g}", [1, 1])
+        if func_type in ["Tự động (Best R²)", "Bậc 2"]:
+            models['Bậc 2'] = (lambda x, a, b, c: a*x**2 + b*x + c, lambda p: f"y = {p[0]:.4g}x² + {p[1]:.4g}x + {p[2]:.4g}", [1, 1, 1])
+        if func_type in ["Tự động (Best R²)", "Bậc 3"]:
+            models['Bậc 3'] = (lambda x, a, b, c, d: a*x**3 + b*x**2 + c*x + d, lambda p: f"y = {p[0]:.4g}x³ + {p[1]:.4g}x² + {p[2]:.4g}x + {p[3]:.4g}", [1, 1, 1, 1])
+        if func_type in ["Tự động (Best R²)", "Hàm Mũ"]:
+            models['Hàm Mũ'] = (lambda x, a, b, c: a * np.exp(b * x) + c, lambda p: f"y = {p[0]:.4g} * e^({p[1]:.4g}x) + {p[2]:.4g}", [1, 0.01, 1])
+        if func_type in ["Tự động (Best R²)", "Logarit"]:
+            models['Logarit'] = (lambda x, a, b: a * np.log(np.abs(x) + 1e-5) + b, lambda p: f"y = {p[0]:.4g} * ln(|x|) + {p[1]:.4g}", [1, 1])
+
+        best_name, best_func, best_popt, best_r2, best_eq = None, None, None, -np.inf, ""
         
-        for name, func in models.items():
+        for name, (func, eq_func, p0) in models.items():
             try:
-                p0 = [1] * (func.__code__.co_argcount - 1)
-                if name == 'Hàm mũ (Exponential)': p0 = [1, 0.1, 1]
-                
                 popt, _ = curve_fit(func, x, y, p0=p0, maxfev=10000)
                 y_pred = func(x, *popt)
-                
                 ss_res = np.sum((y - y_pred)**2)
                 ss_tot = np.sum((y - np.mean(y))**2)
                 r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
                 
                 if r2 > best_r2:
-                    best_r2 = r2; best_name = name; best_func = func; best_popt = popt
+                    best_r2, best_name, best_func, best_popt = r2, name, func, popt
+                    best_eq = eq_func(popt)
             except: pass
             
         if best_name:
-            self.lbl_result_subj.config(text=f"Mô hình Tối ưu: {best_name}  |  Độ khớp (R²): {best_r2:.4f}")
+            # Hiển thị phương trình ra UI
+            self.lbl_result_subj.config(text=f"Mô hình: {best_name} | R²: {best_r2:.4f} | Phương trình: {best_eq}")
             self.ax_subj.clear()
-            self.ax_subj.scatter(x, y, color='royalblue', s=100, label='Dữ liệu mô phỏng', zorder=5, edgecolors='black')
             
-            # Tính toán khoảng margin mượt mà hơn cho đường dự đoán
+            # Thể hiện toàn bộ dữ liệu phân tán thông qua ErrorBar (Trung bình + Phương sai)
+            self.ax_subj.errorbar(x, y, yerr=y_err, fmt='o', color='royalblue', ecolor='gray', 
+                                  capsize=4, markersize=8, markeredgecolor='black', label='Trung bình & Phương sai', zorder=5)
+            
             x_min, x_max = min(x), max(x)
             margin = 0.05 * abs(x_max - x_min) if x_max != x_min else 0.1
             x_smooth = np.linspace(x_min - margin, x_max + margin, 200)
             
             y_smooth = best_func(x_smooth, *best_popt)
-            self.ax_subj.plot(x_smooth, y_smooth, color='crimson', linestyle='--', linewidth=2, label=f'Dự đoán ({best_name})')
+            self.ax_subj.plot(x_smooth, y_smooth, color='crimson', linestyle='--', linewidth=2, label=f'Đường nội suy ({best_name})')
             
             for i, txt in enumerate(self.df_merged['Algorithm']):
-                self.ax_subj.annotate(txt, (x[i], y[i]), xytext=(5,5), textcoords='offset points', fontweight='bold')
+                self.ax_subj.annotate(txt, (x[i], y[i]), xytext=(5,5), textcoords='offset points', fontweight='bold', fontsize=8)
                 
-            self.ax_subj.set_title(f'Tương quan: {x_col} vs Đánh giá Chủ quan (Subjective Score)', fontweight='bold')
+            self.ax_subj.set_title(f'Tương quan: {x_col} vs Điểm Chủ quan', fontweight='bold')
             self.ax_subj.set_xlabel(x_col)
-            self.ax_subj.set_ylabel('Điểm Chủ quan (1: Tốt -> 5: Tệ)')
+            self.ax_subj.set_ylabel('Điểm Chủ quan (Score)')
             self.ax_subj.grid(True, linestyle='--', alpha=0.7)
             self.ax_subj.legend()
             self.fig_subj.tight_layout()
@@ -625,18 +795,40 @@ class MCA6DOFEvaluatorApp:
             messagebox.showerror("Lỗi", "Không thể nội suy hàm toán học nào cho bộ dữ liệu này.")
 
     def run_combinatorial_regression(self):
-        if self.df_merged is None: return
+        # 1. TỰ ĐỘNG GỘP DỮ LIỆU ĐỂ TRÁNH LỖI TRỐNG DỮ LIỆU
+        df_obj = self.get_objective_dataframe()
+        if not hasattr(self, 'df_subj_mean') or self.df_subj_mean is None or df_obj is None:
+            messagebox.showwarning("Cảnh báo", "Hãy nạp dữ liệu Khách quan (Tab 1) và Chủ quan (Tab 4) trước.")
+            return
+            
+        # =================================================================
+        # BẢN CHUẨN HÓA DÀNH CHO TÊN THUẬT TOÁN ĐÁNH SỐ TỪ 1 ĐẾN 12
+        # =================================================================
+        self.df_subj_mean['MergeKey'] = pd.to_numeric(self.df_subj_mean['Algorithm'].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
+        df_obj['MergeKey'] = pd.to_numeric(df_obj['Algorithm'].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
+
+        self.df_merged = pd.merge(self.df_subj_mean, df_obj, on='MergeKey', how='inner', suffixes=('_subj', '_obj'))
+        self.df_merged = self.df_merged.sort_values('MergeKey')
+        
+        if 'Algorithm_obj' in self.df_merged.columns:
+            self.df_merged['Algorithm'] = self.df_merged['Algorithm_obj'].astype(str).str.replace(".mat", "", regex=False)
+            
+        if self.df_merged.empty:
+            messagebox.showerror("Lỗi ghép dữ liệu", "Không có thuật toán nào khớp nhau! Hãy kiểm tra lại số 1-12.")
+            return
+        # =================================================================
+
+        # 2. XỬ LÝ CHỌN TIÊU CHÍ VÀ TÍNH TOÁN HÀM FITTING
         selected_indices = self.lb_metrics.curselection()
         if not selected_indices:
-            messagebox.showwarning("Nhắc nhở", "Hãy chọn ít nhất 1 tiêu chí khách quan.")
+            messagebox.showwarning("Nhắc nhở", "Hãy click chọn ít nhất 1 tiêu chí khách quan trong Listbox (Giữ Ctrl để chọn nhiều).")
             return
             
         selected_metrics = [self.lb_metrics.get(i) for i in selected_indices]
-        y_true = self.df_merged['Subjective_Mean_Score'].values
+        y_true = self.df_merged['SMC'].values
         
-        self.correlation_results = [] # Lưu trữ để xuất CSV sau này
+        self.correlation_results = []
         
-        # Hàm hỗ trợ tính R2 và RMSE
         def calc_r2_rmse(y_t, y_p):
             ss_res = np.sum((y_t - y_p)**2)
             ss_tot = np.sum((y_t - np.mean(y_t))**2)
@@ -644,73 +836,76 @@ class MCA6DOFEvaluatorApp:
             rmse = np.sqrt(mean_squared_error(y_t, y_p))
             return r2, rmse
 
-        # 3a & 3c: Phân tích TƯƠNG QUAN ĐƠN (1 biến) với nhiều dạng hàm
         for col in selected_metrics:
             x = self.df_merged[col].values
             
-            # 1. Tuyến tính (Linear): y = w1*x + w0
-            popt, _ = curve_fit(lambda x, w1, w0: w1*x + w0, x, y_true)
-            r2, rmse = calc_r2_rmse(y_true, popt[0]*x + popt[1])
-            eq = f"{popt[0]:.4f}*{col} + {popt[1]:.4f}"
-            self.correlation_results.append(("Tuyến tính", col, eq, r2, rmse))
-            
-            # 2. Bậc 2 (Quadratic): y = w2*x^2 + w1*x + w0
-            popt, _ = curve_fit(lambda x, w2, w1, w0: w2*(x**2) + w1*x + w0, x, y_true)
-            r2, rmse = calc_r2_rmse(y_true, popt[0]*(x**2) + popt[1]*x + popt[2])
-            eq = f"{popt[0]:.4f}*{col}² + {popt[1]:.4f}*{col} + {popt[2]:.4f}"
-            self.correlation_results.append(("Bậc 2", col, eq, r2, rmse))
-            
-            # 3. Hàm mũ (Exponential): y = a * exp(b*x) + c
+            # Tuyến tính
             try:
-                popt, _ = curve_fit(lambda x, a, b, c: a*np.exp(b*x) + c, x, y_true, p0=[1, 0.1, 1], maxfev=5000)
+                popt, _ = curve_fit(lambda x, w1, w0: w1*x + w0, x, y_true)
+                r2, rmse = calc_r2_rmse(y_true, popt[0]*x + popt[1])
+                eq = f"{popt[0]:.4f}*{col} + {popt[1]:.4f}"
+                self.correlation_results.append(("Tuyến tính", col, eq, r2, rmse))
+            except: pass
+            
+            # Bậc 2
+            try:
+                popt, _ = curve_fit(lambda x, w2, w1, w0: w2*(x**2) + w1*x + w0, x, y_true)
+                r2, rmse = calc_r2_rmse(y_true, popt[0]*(x**2) + popt[1]*x + popt[2])
+                eq = f"{popt[0]:.4f}*{col}² + {popt[1]:.4f}*{col} + {popt[2]:.4f}"
+                self.correlation_results.append(("Bậc 2", col, eq, r2, rmse))
+            except: pass
+            
+            # Hàm mũ (Đã tăng số maxfev để tránh crash khi hội tụ)
+            try:
+                popt, _ = curve_fit(lambda x, a, b, c: a*np.exp(b*x) + c, x, y_true, p0=[1, 0.01, 1], maxfev=10000)
                 r2, rmse = calc_r2_rmse(y_true, popt[0]*np.exp(popt[1]*x) + popt[2])
                 eq = f"{popt[0]:.4f} * e^({popt[1]:.4f}*{col}) + {popt[2]:.4f}"
                 self.correlation_results.append(("Hàm Mũ", col, eq, r2, rmse))
             except: pass
 
-        # 3b: Phân tích TƯƠNG QUAN TỔ HỢP ĐA BIẾN (Tuyến tính bội: 2 -> N biến)
+        # Đa biến (Tổ hợp N tiêu chí)
         if len(selected_metrics) >= 2:
             for r in range(2, len(selected_metrics) + 1):
                 for combo in itertools.combinations(selected_metrics, r):
                     X_multi = self.df_merged[list(combo)].values
-                    # Sử dụng numpy lstsq để tìm nghiệm hồi quy đa biến
                     X_design = np.column_stack([X_multi, np.ones(len(X_multi))])
-                    weights, residuals, _, _ = np.linalg.lstsq(X_design, y_true, rcond=None)
-                    
-                    y_pred = X_design @ weights
-                    r2, rmse = calc_r2_rmse(y_true, y_pred)
-                    
-                    # Tạo chuỗi phương trình
-                    eq_parts = [f"{w:.4f}*{var}" for w, var in zip(weights[:-1], combo)]
-                    eq = " + ".join(eq_parts) + f" + {weights[-1]:.4f}"
-                    combo_name = " + ".join(combo)
-                    
-                    self.correlation_results.append((f"Tổ hợp {r} biến", combo_name, eq, r2, rmse))
+                    try:
+                        weights, _, _, _ = np.linalg.lstsq(X_design, y_true, rcond=None)
+                        y_pred = X_design @ weights
+                        r2, rmse = calc_r2_rmse(y_true, y_pred)
+                        
+                        eq_parts = [f"{w:.4f}*{var}" for w, var in zip(weights[:-1], combo)]
+                        eq = " + ".join(eq_parts) + f" + {weights[-1]:.4f}"
+                        combo_name = " + ".join(combo)
+                        
+                        self.correlation_results.append((f"Tổ hợp {r} biến", combo_name, eq, r2, rmse))
+                    except: pass
 
-        # Hiển thị lên Bảng, Sort theo R2 giảm dần
         self.correlation_results.sort(key=lambda x: x[3], reverse=True)
         for row in self.tv_corr.get_children(): self.tv_corr.delete(row)
         
         for res in self.correlation_results:
-            tag = 'best' if res[3] >= 0.8 else '' # Highlight R2 >= 0.8
+            tag = 'best' if res[3] >= 0.8 else ''
             self.tv_corr.insert("", tk.END, values=(res[0], res[1], res[2], f"{res[3]:.4f}", f"{res[4]:.4f}"), tags=(tag,))
 
     def refresh_metrics_list(self):
-        """Cập nhật danh sách tiêu chí vào Listbox ở Tab 4"""
+        """Cập nhật danh sách tiêu chí vào Listbox và Combobox ở Tab 4"""
         if hasattr(self, 'datasets') and len(self.datasets) > 0:
-            # Lấy key từ dict metrics của thuật toán đầu tiên
             first_algo = list(self.datasets.keys())[0]
             metrics = self.datasets[first_algo]['metrics'].keys()
+            filtered_metrics = [m for m in metrics if m not in ['Algorithm', 'SMC', 'MergeKey', 'std']]
             
-            # Lọc chỉ lấy các tiêu chí phù hợp (bỏ qua những thứ không phải là số)
-            filtered_metrics = [m for m in metrics if m not in ['Algorithm', 'Subjective_Mean_Score', 'MergeKey', 'std']]
+            # Chỉ cập nhật Listbox nếu Listbox đã được sinh ra trên UI
+            if hasattr(self, 'lb_metrics'):
+                self.lb_metrics.delete(0, tk.END)
+                for m in filtered_metrics:
+                    self.lb_metrics.insert(tk.END, m)
             
-            self.lb_metrics.delete(0, tk.END)
-            for m in filtered_metrics:
-                self.lb_metrics.insert(tk.END, m)
-                
-            # Cập nhật cả Combobox ở Tab 4 cho tương quan đơn
-            self.cb_metric_subj['values'] = filtered_metrics
+            # Chỉ cập nhật Combobox nếu Combobox đã được sinh ra trên UI
+            if hasattr(self, 'cb_metric_subj'):
+                self.cb_metric_subj['values'] = filtered_metrics
+                if filtered_metrics:
+                    self.cb_metric_subj.current(0)
 
     def export_formulas(self):
         if not hasattr(self, 'correlation_results') or not self.correlation_results:
@@ -807,6 +1002,13 @@ class MCA6DOFEvaluatorApp:
 
         self.fig_adv.tight_layout(pad=3.0)
         self.canvas_adv.draw()
+
+    def clear_correlation_table(self):
+        """Xóa trắng bảng kết quả Hồi quy Vét cạn"""
+        self.correlation_results = []
+        for row in self.tv_corr.get_children():
+            self.tv_corr.delete(row)
+        messagebox.showinfo("Thông báo", "Đã xóa trắng bảng kết quả Hồi quy.")
 
 if __name__ == "__main__":
     root = tk.Tk()
